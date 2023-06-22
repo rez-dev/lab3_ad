@@ -49,7 +49,7 @@ library(MASS)
 library(caret)
 
 # Importar datos
-poblacion <- read.csv2(file.choose(new = FALSE), encoding="utf8")
+poblacion <- read.csv2("bank-additional-full.csv", encoding="utf8")
 
 # Copia de la BD original
 poblacion2 <- poblacion
@@ -151,142 +151,65 @@ set.seed(133)
 strat_sample <- poblacion2 %>%
                   group_by(loan) %>%
                   sample_frac(size=.05)
-# nrow(strat_sample)
 
 # Al comparar la data obtenida por el muestreo aleatorio estratificado y la original
 # podemos apreciar que la porporciones de las  variables categoricas seleccionadas 
 # se mantiene y por lo tanto, el muestreo es exitoso.
 
-for (i in 1:(length(cat_vars))){
-  variable <- cat_vars[i]
-  print(paste("variable:", variable))
-  print(abs(prop.table(table(strat_sample[[variable]])) - prop.table(table(poblacion2[[variable]]))))
-}
-
-# https://www.google.com/url?sa=t&rct=j&q=&esrc=s&source=web&cd=&ved=2ahUKEwj-lISnobz_AhUlIrkGHS32AYQQFnoECBgQAQ&url=https%3A%2F%2Fwww.kdd.org%2Fkdd2016%2Fpapers%2Ffiles%2Frpp0427-dos-reisA.pdf&usg=AOvVaw06HqzbQcTfTW7bEVuP0w9W
-
-# En el caso de las variables continuas se aprecia que su distribucion no fue altamente alterada
-# en ninguna de ellas, teniendo KS poco significativos, exepto por el caso de la variable duration
-# que a pesar de tener un ks significativo, este es considerado muy bajo (0.09)
-
-# Se transforman las variables continuas a integer
-strat_sample2 <- strat_sample[c(var_cont,cat_vars)]
-
-# Se convierten las variables continuas en integer
-for (i in 1:(length(c(var_cont)))){
-  variable <- var_cont[i]
-  print(variable)
-  strat_sample2[[variable]] <- as.integer(strat_sample2[[variable]])
-}
-
-# Se convierten las variables categoricas en numericas
-for (i in 1:(length(cat_vars))){
-  variable <- cat_vars[i]
-  print(variable)
-  strat_sample2[[variable]] <- as.integer(factor(strat_sample2[[variable]], levels =unique(strat_sample2[[variable]])))
-}
-
-# Se transforman las variables continuas en integer en poblacion2
-for (i in 1:(length(c(var_cont)))){
-  variable <- var_cont[i]
-  print(variable)
-  poblacion2[[variable]] <- as.integer(poblacion2[[variable]])
-}
-
-
-# Se realiza el calculo del KS
-for (i in 1:(length(var_cont))){
-  variable <- var_cont[i]
-  print(paste("variable:", variable))
-  print(ks.test(strat_sample2[[variable]],poblacion2[[variable]]))
-  }
-
-################ OBTENER K ÓPTIMO ################
-
-# Se transforman las variables categóricas a binarias para evitar el warning
-strat_sample2$housing <- factor(strat_sample2$housing)
-strat_sample2$loan <- factor(strat_sample2$loan)
-strat_sample2$contact <- factor(strat_sample2$contact)
-strat_sample2$y <- factor(strat_sample2$y)
-
-# Se calcula la distancia entre los datos con la distancia de gower
-library(cluster)
-distancia <- daisy(strat_sample2, metric = "gower")
-
-######################## CALCULAR NUMERO DE CLUSTERES con el método silhouette ##########################
-# Se calcula el ancho de silhouette para varios valores de k con PAM
-sil_width <- c(NA)
-for(i in 2:10){
-  pam_fit <- pam(distancia,
-                 diss = TRUE,
-                 k = i)
-  sil_width[i] <- pam_fit$silinfo$avg.width
-}
-
-# Se grafica silhouette a lo ancho
-plot(1:10, sil_width,
-     xlab = "Cantidad de clusters",
-     ylab = "Ancho de Silhouette")
-lines(1:10, sil_width)
-
-################## SEGMENTACIÓN EN 7 CLÚSTER ###########################
-set.seed(3312)
-library(Rtsne)
-pam_fit <- pam(distancia,
-               diss = TRUE,
-               k = 3)
-tsne_obj <- Rtsne(distancia, is_distance = TRUE)
-tsne_data <- tsne_obj$Y %>%
-  data.frame() %>%
-  setNames(c("X", "Y")) %>%
-  mutate(cluster = factor(pam_fit$clustering),
-         name = strat_sample2$job)
-ggplot(aes(x = X, y = Y), data = tsne_data) +
-  geom_point(aes(color = cluster))
-
-
-
-
-
+# for (i in 1:(length(cat_vars))){
+#   variable <- cat_vars[i]
+#   print(paste("variable:", variable))
+#   print(abs(prop.table(table(strat_sample[[variable]])) - prop.table(table(poblacion2[[variable]]))))
+# }
 ####################### Lab 3 #################################
 
 ###############################################################
 
-library(arules)
+library(arulesViz)
 library(igraph)
 library(tidygraph)
 
-
-
 # Generar las reglas de asociación
-rules <- apriori(strat_sample2, parameter = list(support = 0.01, confidence = 0.5))
+rules <- apriori(poblacion2,parameter = list(supp=0.001, conf=0.8, minlen=3),
+                 appearance =list(default='lhs', rhs='y=yes'),
+                 control=list(verbose=FALSE))
 
-# Convertir las reglas en un grafo con las reglas como nodos
-g <- associations2igraph(rules)
+inspect(rules[1:5])
 
-# Mostrar el grafo de reglas
-plot(g)
+rules <- sort(rules, by='confidence', decreasing = TRUE)
+inspect(rules[1:5])
 
-# Convertir el grafo en un tidygraph
-tg <- as_tbl_graph(g)
+subrules <- head(rules,5)
+plot(subrules, method='graph', interactive=FALSE)
 
-# Mostrar el tidygraph
-print(tg)
 
-# Obtener los conjuntos de elementos generadores de las reglas
-itemsets <- generatingItemsets(rules)
 
-# Convertir los conjuntos de elementos en un grafo con los conjuntos como aristas
-g_itemsets <- associations2igraph(itemsets, associationsAsNodes = FALSE)
-
-# Mostrar el grafo de conjuntos de elementos
-plot(g_itemsets, layout = layout_in_circle)
-
-# Guardar las reglas como un grafo en formato graphml
-saveAsGraph(rules, "rules.graphml")
-
-# Eliminar el archivo graphml generado
-unlink("rules.graphml")
+# # Convertir las reglas en un grafo con las reglas como nodos
+# g <- associations2igraph(rules)
+# 
+# # Mostrar el grafo de reglas
+# plot(g)
+# 
+# # Convertir el grafo en un tidygraph
+# tg <- as_tbl_graph(g)
+# 
+# # Mostrar el tidygraph
+# print(tg)
+# 
+# # Obtener los conjuntos de elementos generadores de las reglas
+# itemsets <- generatingItemsets(rules)
+# 
+# # Convertir los conjuntos de elementos en un grafo con los conjuntos como aristas
+# g_itemsets <- associations2igraph(itemsets, associationsAsNodes = FALSE)
+# 
+# # Mostrar el grafo de conjuntos de elementos
+# plot(g_itemsets, layout = layout_in_circle)
+# 
+# # Guardar las reglas como un grafo en formato graphml
+# saveAsGraph(rules, "rules.graphml")
+# 
+# # Eliminar el archivo graphml generado
+# unlink("rules.graphml")
 
 
 
